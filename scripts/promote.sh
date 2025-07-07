@@ -37,6 +37,40 @@ log_debug() {
     echo -e "${BLUE}[DEBUG]${NC} $1"
 }
 
+# Docker compose command detection
+DOCKER_COMPOSE_CMD=""\
+
+detect_docker_compose() {
+    if [ -n "$DOCKER_COMPOSE_CMD" ]; then
+        return 0
+    fi
+    
+    # Try docker-compose first (legacy)
+    if command -v docker-compose >/dev/null 2>&1; then
+        if docker-compose version >/dev/null 2>&1; then
+            DOCKER_COMPOSE_CMD="docker-compose"
+            log_debug "Using docker-compose command"
+            return 0
+        fi
+    fi
+    
+    # Fallback to docker compose (new)
+    if docker compose version >/dev/null 2>&1; then
+        DOCKER_COMPOSE_CMD="docker compose"
+        log_debug "Using docker compose command"
+        return 0
+    fi
+    
+    log_error "Neither 'docker-compose' nor 'docker compose' is available"
+    return 1
+}
+
+# Wrapper function for docker compose commands
+docker_compose() {
+    detect_docker_compose || return 1
+    $DOCKER_COMPOSE_CMD "$@"
+}
+
 # Check if a service is healthy
 check_health() {
     local service=$1
@@ -46,7 +80,7 @@ check_health() {
     log_info "Checking health of $service..."
     
     while [ $attempt -le $max_attempts ]; do
-        if docker-compose -f "$DOCKER_DIR/compose.yml" exec -T "$service" curl -f http://localhost:8000/healthz/ >/dev/null 2>&1; then
+        if docker_compose -f "$DOCKER_DIR/compose.yml" exec -T "$service" curl -f http://localhost:8000/healthz/ >/dev/null 2>&1; then
             log_info "$service is healthy"
             return 0
         fi
@@ -69,7 +103,7 @@ check_readiness() {
     log_info "Checking readiness of $service..."
     
     while [ $attempt -le $max_attempts ]; do
-        if docker-compose -f "$DOCKER_DIR/compose.yml" exec -T "$service" curl -f http://localhost:8000/readyz/ >/dev/null 2>&1; then
+        if docker_compose -f "$DOCKER_DIR/compose.yml" exec -T "$service" curl -f http://localhost:8000/readyz/ >/dev/null 2>&1; then
             log_info "$service is ready"
             return 0
         fi
@@ -152,9 +186,9 @@ EOF
 
 # Get currently active deployment
 get_active_deployment() {
-    if docker-compose -f "$DOCKER_DIR/compose.yml" ps app_blue | grep -q "Up"; then
+    if docker_compose -f "$DOCKER_DIR/compose.yml" ps app_blue | grep -q "Up"; then
         echo "blue"
-    elif docker-compose -f "$DOCKER_DIR/compose.yml" ps app_green | grep -q "Up"; then
+    elif docker_compose -f "$DOCKER_DIR/compose.yml" ps app_green | grep -q "Up"; then
         echo "green"
     else
         echo "none"
@@ -171,7 +205,7 @@ switch_nginx_config() {
     cp "$DOCKER_DIR/nginx-$target_color.conf" "$DOCKER_DIR/nginx-active.conf"
     
     # Update the nginx container configuration
-    docker-compose -f "$DOCKER_DIR/compose.yml" exec nginx nginx -s reload
+    docker_compose -f "$DOCKER_DIR/compose.yml" exec nginx nginx -s reload
     
     if [ $? -eq 0 ]; then
         log_info "Nginx configuration switched to $target_color"
@@ -209,9 +243,9 @@ deploy() {
     log_info "Step 1: Building and starting $target_color deployment..."
     
     if [ "$target_color" = "green" ]; then
-        docker-compose --profile green up -d --build app_green
+        docker_compose --profile green up -d --build app_green
     else
-        docker-compose up -d --build app_blue
+        docker_compose up -d --build app_blue
     fi
     
     # Step 2: Wait for the new deployment to be healthy
@@ -269,13 +303,13 @@ deploy() {
         log_info "Step 5: Retiring old $current_deployment deployment..."
         
         # Send graceful shutdown signal
-        docker-compose -f "$DOCKER_DIR/compose.yml" kill -s SIGTERM "app_$current_deployment"
+        docker_compose -f "$DOCKER_DIR/compose.yml" kill -s SIGTERM "app_$current_deployment"
         
         # Wait a bit for graceful shutdown
         sleep 10
         
         # Stop the old deployment
-        docker-compose -f "$DOCKER_DIR/compose.yml" stop "app_$current_deployment"
+        docker_compose -f "$DOCKER_DIR/compose.yml" stop "app_$current_deployment"
         
         log_info "Old $current_deployment deployment retired"
     fi
