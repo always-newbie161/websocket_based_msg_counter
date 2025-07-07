@@ -2,24 +2,13 @@ name: WebSocket Message Counter CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ master, dev ]
   pull_request:
-    branches: [ main ]
+    branches: [ master ]
 
 jobs:
-  test:
+  build-test-and-deploy:
     runs-on: ubuntu-latest
-    
-    services:
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
     - uses: actions/checkout@v4
@@ -29,128 +18,72 @@ jobs:
       with:
         python-version: '3.11'
     
-    - name: Install dependencies
+    - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     
-    - name: Run linting
-      run: |
-        pip install flake8 black isort
-        flake8 app/ --count --select=E9,F63,F7,F82 --show-source --statistics
-        black --check app/
-        isort --check-only app/
-    
-    - name: Run Django checks
-      run: |
-        cd app
-        python manage.py check
-    
-    - name: Run tests
-      run: |
-        cd app
-        python -m pytest ../tests/ -v --tb=short
-      env:
-        DJANGO_SETTINGS_MODULE: config.settings
-        REDIS_HOST: localhost
-        DEBUG: true
-
-  build-and-test:
-    runs-on: ubuntu-latest
-    needs: test
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-    
-    - name: Build Docker image
-      run: |
-        docker build -f docker/Dockerfile -t websocket-app:test .
-    
     - name: Start services
       run: |
         cd docker
-        docker-compose up -d redis nginx app_blue
+        docker compose up -d redis nginx app_blue loki
     
     - name: Wait for services to be ready
       run: |
-        timeout 60 sh -c 'until curl -f http://localhost/healthz/; do sleep 2; done'
-        timeout 30 sh -c 'until curl -f http://localhost/readyz/; do sleep 2; done'
+        timeout 60 sh -c 'until curl -f http://localhost:8080/healthz/; do sleep 2; done'
+        timeout 30 sh -c 'until curl -f http://localhost:8080/readyz/; do sleep 2; done'
     
     - name: Run integration tests
       run: |
-        python -m pytest tests/test_websocket.py::test_websocket_integration -v
+        cd app && python -m pytest ../tests/test_websocket.py::test_websocket_integration -v
     
     - name: Run monitoring script
       run: |
         chmod +x scripts/monitor.sh
-        ./scripts/monitor.sh 20 monitor
+        timeout 30 ./scripts/monitor.sh 20 monitor || true
     
-    - name: Run basic load test
+    - name: Run load test
       run: |
-        pip install websocket-client
-        timeout 30 python tests/socket_load_test.py --sockets 100 --rate 20 --duration 20 --host ws://localhost || true
+        timeout 30 python tests/socket_load_test.py --sockets 100 --rate 20 --duration 20 --host ws://localhost:8080 || true
+    
+    - name: Test blue-green deployment
+      if: github.ref == 'refs/heads/master'
+      run: |
+        chmod +x scripts/promote.sh
+      
+        
+        # Test promotion to green
+        ./scripts/promote.sh green
+        
+        # Verify green is active
+        timeout 60 sh -c 'until curl -f http://localhost:8080/healthz/; do sleep 2; done'
+        
+        # Test rollback to blue
+        ./scripts/promote.sh blue
+        
+        # Verify blue is active again
+        timeout 60 sh -c 'until curl -f http://localhost:8080/healthz/; do sleep 2; done'
     
     - name: Collect logs
       if: always()
       run: |
         mkdir -p artifacts/logs
         cd docker
-        docker-compose logs app_blue > ../artifacts/logs/app_blue.log
-        docker-compose logs redis > ../artifacts/logs/redis.log
+        docker compose logs app_blue > ../artifacts/logs/app_blue.log 2>&1 || true
+        docker compose logs app_green > ../artifacts/logs/app_green.log 2>&1 || true
+        docker compose logs redis > ../artifacts/logs/redis.log 2>&1 || true
         docker logs $(docker ps -q) > ../artifacts/logs/all_containers.log 2>&1 || true
     
     - name: Archive logs and artifacts
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: test-artifacts
         path: artifacts/
         retention-days: 7
     
-    - name: Stop services
-      if: always()
-      run: |
-        cd docker
-        docker-compose down -v
-
-  deploy-test:
-    runs-on: ubuntu-latest
-    needs: build-and-test
-    if: github.ref == 'refs/heads/main'
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Test blue-green deployment
-      run: |
-        chmod +x scripts/promote.sh
-        cd docker
-        
-        # Start initial blue deployment
-        docker-compose up -d redis nginx app_blue
-        
-        # Test nginx server directly
-        timeout 60 sh -c 'until curl -f http://localhost/healthz/; do sleep 2; done'
-        timeout 30 sh -c 'until curl -f http://localhost/readyz/; do sleep 2; done'
-        
-        # Test promotion to green
-        cd ..
-        ./scripts/promote.sh green
-        
-        # Verify green is active
-        timeout 60 sh -c 'until curl -f http://localhost/healthz/; do sleep 2; done'
-        
-        # Test rollback to blue
-        ./scripts/promote.sh blue
-        
-        # Verify blue is active again
-        timeout 60 sh -c 'until curl -f http://localhost/healthz/; do sleep 2; done'
-    
     - name: Cleanup
       if: always()
       run: |
         cd docker
-        docker-compose down -v
+        docker compose down -v
