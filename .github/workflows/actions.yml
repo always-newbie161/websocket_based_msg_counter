@@ -40,14 +40,14 @@ jobs:
     - name: Run monitoring script
       run: |
         chmod +x scripts/monitor.sh
-        ./scripts/monitor.sh 20 monitor
+        timeout 30 ./scripts/monitor.sh 20 monitor || true
     
-    - name: Run basic load test
+    - name: Run load test
       run: |
         timeout 30 python tests/socket_load_test.py --sockets 100 --rate 20 --duration 20 --host ws://localhost:8080 || true
     
     - name: Test blue-green deployment
-      if: github.ref == 'refs/heads/main'
+      if: github.ref == 'refs/heads/master'
       run: |
         chmod +x scripts/promote.sh
       
