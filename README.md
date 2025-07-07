@@ -2,6 +2,9 @@
 
 A WebSocket service built with Django Channels, featuring blue-green deployments, comprehensive observability, and graceful shutdown handling.
 
+## Demo
+[🎥 Watch Demo on how to deploy, run, test and check metrics](loom.com/share/084bbf45b7fa4eb1bc63e7ad916fe73f)
+
 ## 🚀 Quick Start
 
 **One-liner to spin up the full stack:**
@@ -21,6 +24,7 @@ make load-test
 ```bash
 make promote
 ```
+
 
 ## 📋 Features
 
