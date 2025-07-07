@@ -103,7 +103,7 @@ The application is tuned for optimal WebSocket performance:
 
 ```yaml
 # In docker-compose.yml
-ASGI_WORKERS: 4              # 2x CPU cores for I/O-bound connections
+ASGI_WORKERS: 4      
 ```
 
 **Rationale:**
