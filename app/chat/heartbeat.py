@@ -94,3 +94,4 @@ def stop_heartbeat_service():
     global _heartbeat_service
     if _heartbeat_service:
         _heartbeat_service.stop()
+        _heartbeat_service = None

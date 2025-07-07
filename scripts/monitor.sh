@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Simple Monitoring Script
+#  Monitoring Script
 # 1. Tails container logs for ERROR messages
 # 2. Prints top-5 metrics from /metrics every 10 seconds
 
