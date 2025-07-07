@@ -52,7 +52,7 @@ jobs:
     - name: Start services
       run: |
         cd docker
-        docker-compose up -d redis nginx app_blue loki
+        docker compose up -d redis nginx app_blue loki
     
     - name: Wait for services to be ready
       run: |
@@ -78,8 +78,8 @@ jobs:
       run: |
         mkdir -p artifacts/logs
         cd docker
-        docker-compose logs app_blue > ../artifacts/logs/app_blue.log
-        docker-compose logs redis > ../artifacts/logs/redis.log
+        docker compose logs app_blue > ../artifacts/logs/app_blue.log
+        docker compose logs redis > ../artifacts/logs/redis.log
         docker logs $(docker ps -q) > ../artifacts/logs/all_containers.log 2>&1 || true
     
     - name: Archive logs and artifacts
@@ -94,7 +94,7 @@ jobs:
       if: always()
       run: |
         cd docker
-        docker-compose down -v
+        docker compose down -v
 
   deploy-test:
     runs-on: ubuntu-latest
@@ -110,7 +110,7 @@ jobs:
         cd docker
         
         # Start initial blue deployment
-        docker-compose up -d redis nginx app_blue
+        docker compose up -d redis nginx app_blue
         
         # Test nginx server directly
         timeout 60 sh -c 'until curl -f http://localhost:8080/healthz/; do sleep 2; done'
@@ -133,4 +133,4 @@ jobs:
       if: always()
       run: |
         cd docker
-        docker-compose down -v
+        docker compose down -v
