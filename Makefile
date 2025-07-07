@@ -40,6 +40,7 @@ help:
 	@echo "  make clean         Clean up containers and volumes"
 	@echo "  make clean-all     Clean everything including images"
 
+
 # Development environment
 dev-up:
 	@echo "Starting WebSocket Message Counter development environment..."
