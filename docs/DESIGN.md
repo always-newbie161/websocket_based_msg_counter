@@ -2,7 +2,7 @@
 
 ## Architecture Overview
 
-This project implements a production-ready WebSocket message counter service using Django Channels with a focus on scalability, observability, and zero-downtime deployments.
+This project implements a WebSocket message counter service using Django Channels with a focus on scalability, observability, and zero-downtime deployments.
 
 ### Core Components
 
