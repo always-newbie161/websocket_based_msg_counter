@@ -1,0 +1,173 @@
+version: '3.8'
+
+services:
+  # Redis for Django Channels
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Blue deployment
+  app_blue:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings
+      - DEBUG=false
+      - REDIS_HOST=redis
+      - SECRET_KEY=blue-secret-key-change-in-production
+      - ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0,nginx,app_blue,app_green
+      - LOG_LEVEL=INFO
+      - ASGI_WORKERS=4
+      - THREAD_POOL_SIZE=8
+      - WEBSOCKET_HEARTBEAT_INTERVAL=30
+      - GRACEFUL_SHUTDOWN_TIMEOUT=10
+      - LOKI_URL=http://loki:3100
+      - LOKI_ENABLED=false
+    depends_on:
+      redis:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+    ports:
+      - "8001:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    command: >
+      sh -c "uvicorn config.asgi:application 
+      --host 0.0.0.0 
+      --port 8000 
+      --workers $${ASGI_WORKERS}
+      --loop uvloop
+      --log-level info
+      --access-log"
+    labels:
+      - "deployment=blue"
+
+  # Green deployment
+  app_green:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings
+      - DEBUG=false
+      - REDIS_HOST=redis
+      - SECRET_KEY=green-secret-key-change-in-production
+      - ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0,nginx,app_blue,app_green
+      - LOG_LEVEL=INFO
+      # Same concurrency settings as blue
+      - ASGI_WORKERS=4
+      - THREAD_POOL_SIZE=8
+      - WEBSOCKET_HEARTBEAT_INTERVAL=30
+      - GRACEFUL_SHUTDOWN_TIMEOUT=10
+      - LOKI_URL=http://loki:3100
+      - LOKI_ENABLED=false 
+    depends_on:
+      redis:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+    ports:
+      - "8002:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    command: >
+      sh -c "uvicorn config.asgi:application 
+      --host 0.0.0.0 
+      --port 8000 
+      --workers $${ASGI_WORKERS}
+      --loop uvloop
+      --log-level info
+      --access-log"
+    labels:
+      - "deployment=green"
+    profiles:
+      - green
+
+  # Nginx reverse proxy for blue-green deployment
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+      - "8443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx-active.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      app_blue:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/healthz/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    restart: unless-stopped
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      - prometheus
+      - loki
+    restart: unless-stopped
+
+  # Loki for log aggregation
+  loki:
+    image: grafana/loki:2.9.0
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./loki-config.yaml:/etc/loki/local-config.yaml:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3100/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  default:
+    driver: bridge

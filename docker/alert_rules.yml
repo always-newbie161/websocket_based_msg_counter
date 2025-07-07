@@ -1,0 +1,29 @@
+groups:
+  - name: websocket_alerts
+    rules:
+      - alert: NoActiveConnections
+        expr: websocket_active_connections == 0
+        for: 60s
+        labels:
+          severity: warning
+        annotations:
+          summary: "No active WebSocket connections"
+          description: "There have been no active WebSocket connections for more than 60 seconds."
+
+      - alert: HighErrorRate
+        expr: rate(websocket_errors_total[5m]) > 0.1
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "High WebSocket error rate"
+          description: "WebSocket error rate is {{ $value }} errors per second over the last 5 minutes."
+
+      - alert: ApplicationDown
+        expr: up == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Application is down"
+          description: "The WebSocket application has been down for more than 30 seconds."
