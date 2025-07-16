@@ -28,6 +28,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
     """
     Websocket consumer for message counter
     """
+    # Use slots to reduce memory footprint 
+    __slots__ = ('session_id', 'message_count', 'start_time', 'group_name', 'is_shutting_down', 'pending_count')
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

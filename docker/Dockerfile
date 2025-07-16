@@ -11,6 +11,8 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+RUN apt update && apt install -y iproute2 lsof
+
 # Create app user
 RUN groupadd --system app && useradd --system --gid app app
 

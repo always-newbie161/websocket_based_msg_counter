@@ -33,7 +33,7 @@ def startup():
     """Mark the application as ready after startup delay."""
     time.sleep(settings.HEALTH_CHECK_STARTUP_DELAY)
     app_state['ready'] = True
-    logger.info("Application ready", startup_time=app_state['startup_time'])
+    logger.info("Application ready", startup_time=app_state['startup_time'], ready=app_state['ready'], shutting_down=app_state['shutting_down'])
 
 def shutdown():
     """Mark the application as shutting down."""
@@ -76,7 +76,8 @@ def readiness_check(request):
         request_id=request_id,
         endpoint="readyz",
         ready=is_ready,
-        shutting_down=app_state['shutting_down']
+        shutting_down=app_state['shutting_down'],
+        state_ready=app_state['ready'],
     )
     
     response_data = {

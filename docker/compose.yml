@@ -1,7 +1,6 @@
 version: '3.8'
 
 services:
-  # Redis for Django Channels
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -23,14 +22,17 @@ services:
       - DEBUG=false
       - REDIS_HOST=redis
       - SECRET_KEY=blue-secret-key-change-in-production
-      - ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0,nginx,app_blue,app_green
+      - ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0,nginx,app_blue,app_green,host.docker.internal
       - LOG_LEVEL=INFO
       - ASGI_WORKERS=4
       - THREAD_POOL_SIZE=8
       - WEBSOCKET_HEARTBEAT_INTERVAL=30
       - GRACEFUL_SHUTDOWN_TIMEOUT=10
       - LOKI_URL=http://loki:3100
-      - LOKI_ENABLED=false
+      - LOKI_ENABLED=true
+      - WEB_CONCURRENCY=13
+      - WORKER_CONNECTIONS=10000
+      - HEALTH_CHECK_STARTUP_DELAY=0
     depends_on:
       redis:
         condition: service_healthy
@@ -46,15 +48,22 @@ services:
       start_period: 30s
     restart: unless-stopped
     command: >
-      sh -c "uvicorn config.asgi:application 
-      --host 0.0.0.0 
-      --port 8000 
-      --workers $${ASGI_WORKERS}
-      --loop uvloop
-      --log-level info
-      --access-log"
+      sh -c "gunicorn config.asgi:application 
+      -k uvicorn.workers.UvicornWorker 
+      --workers $${WEB_CONCURRENCY} 
+      --worker-connections $${WORKER_CONNECTIONS}
+      --bind 0.0.0.0:8000 
+      --timeout 0 
+      --keep-alive 2 
+      --preload"
     labels:
       - "deployment=blue"
+    # ulimits:
+    #   nofile:
+    #     soft: 65536
+    #     hard: 65536
+    # sysctls:
+    #   net.core.somaxconn: 1024
 
   # Green deployment
   app_green:
@@ -66,7 +75,7 @@ services:
       - DEBUG=false
       - REDIS_HOST=redis
       - SECRET_KEY=green-secret-key-change-in-production
-      - ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0,nginx,app_blue,app_green
+      - ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0,nginx,app_blue,app_green,host.docker.internal
       - LOG_LEVEL=INFO
       # Same concurrency settings as blue
       - ASGI_WORKERS=4
@@ -74,7 +83,10 @@ services:
       - WEBSOCKET_HEARTBEAT_INTERVAL=30
       - GRACEFUL_SHUTDOWN_TIMEOUT=10
       - LOKI_URL=http://loki:3100
-      - LOKI_ENABLED=false 
+      - LOKI_ENABLED=true
+      - WEB_CONCURRENCY=13
+      - WORKER_CONNECTIONS=10000
+      - HEALTH_CHECK_STARTUP_DELAY=0
     depends_on:
       redis:
         condition: service_healthy
@@ -90,15 +102,22 @@ services:
       start_period: 30s
     restart: unless-stopped
     command: >
-      sh -c "uvicorn config.asgi:application 
-      --host 0.0.0.0 
-      --port 8000 
-      --workers $${ASGI_WORKERS}
-      --loop uvloop
-      --log-level info
-      --access-log"
+      sh -c "gunicorn config.asgi:application 
+      -k uvicorn.workers.UvicornWorker 
+      --workers $${WEB_CONCURRENCY} 
+      --worker_connections $${WORKER_CONNECTIONS}
+      --bind 0.0.0.0:8000 
+      --timeout 0 
+      --keep-alive 2 
+      --preload"
     labels:
       - "deployment=green"
+    # ulimits:
+    #   nofile:
+    #     soft: 65536
+    #     hard: 65536
+    # sysctls:
+    #   net.core.somaxconn: 1024
     profiles:
       - green
 

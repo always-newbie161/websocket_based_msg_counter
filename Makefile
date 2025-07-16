@@ -45,7 +45,7 @@ help:
 dev-up:
 	@echo "Starting WebSocket Message Counter development environment..."
 	cd docker && docker-compose up -d redis
-	cd docker && docker-compose up -d app_blue
+	cd docker && docker-compose up -d --build app_blue
 	cd docker && docker-compose up -d nginx prometheus grafana
 	@echo "Development environment started!"
 	@echo ""
@@ -135,6 +135,19 @@ load-test-10k:
 		--host ws://localhost:8080 \
 		--send-rate 0.05
 	@echo " 10K load test completed. Check console output for results."
+
+
+load-test-20k:
+	@echo "Running 20K concurrent WebSocket connections test..."
+	@timeout 60 sh -c 'until curl -sf http://localhost:8080/healthz/ >/dev/null 2>&1; do sleep 2; echo "Waiting for app..."; done'
+	@mkdir -p reports
+	python tests/socket_load_test.py \
+		--sockets 20000 \
+		--rate 400 \
+		--duration 1200 \
+		--host ws://localhost:8080 \
+		--send-rate 0.05
+	@echo " 20K load test completed. Check console output for results."
 
 load-test-quick:
 	@echo " Running quick load test (100 users, 1 minute)..."

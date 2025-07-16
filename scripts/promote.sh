@@ -77,10 +77,20 @@ check_health() {
     local max_attempts=${2:-30}
     local attempt=1
     
-    log_info "Checking health of $service..."
+    # Determine target port based on service
+    local target_port
+    if [ "$service" = "app_blue" ]; then
+        target_port="8001"
+    elif [ "$service" = "app_green" ]; then
+        target_port="8002"
+    else
+        target_port="8000"
+    fi
+    
+    log_info "Checking health of $service on port $target_port..."
     
     while [ $attempt -le $max_attempts ]; do
-        if docker_compose -f "$DOCKER_DIR/compose.yml" exec -T "$service" curl -f http://localhost:8000/healthz/ >/dev/null 2>&1; then
+        if curl -f "http://localhost:$target_port/healthz/" >/dev/null 2>&1; then
             log_info "$service is healthy"
             return 0
         fi
@@ -100,10 +110,20 @@ check_readiness() {
     local max_attempts=${2:-30}
     local attempt=1
     
-    log_info "Checking readiness of $service..."
+    # Determine target port based on service
+    local target_port
+    if [ "$service" = "app_blue" ]; then
+        target_port="8001"
+    elif [ "$service" = "app_green" ]; then
+        target_port="8002"
+    else
+        target_port="8000"
+    fi
+    
+    log_info "Checking readiness of $service on port $target_port..."
     
     while [ $attempt -le $max_attempts ]; do
-        if docker_compose -f "$DOCKER_DIR/compose.yml" exec -T "$service" curl -f http://localhost:8000/readyz/ >/dev/null 2>&1; then
+        if curl -f "http://localhost:$target_port/readyz/" >/dev/null 2>&1; then
             log_info "$service is ready"
             return 0
         fi
@@ -298,6 +318,7 @@ deploy() {
         return 1
     fi
     
+
     # Step 5: Retire the old deployment (if there was one)
     if [ "$current_deployment" != "none" ] && [ "$current_deployment" != "$target_color" ]; then
         log_info "Step 5: Retiring old $current_deployment deployment..."

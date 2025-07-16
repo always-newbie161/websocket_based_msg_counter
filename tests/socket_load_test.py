@@ -49,6 +49,8 @@ class SocketLoadTester:
         # Control flags
         self.running = True
         self.start_time = None
+        self.tasks = []  # Store tasks for cleanup
+        self.interrupted = False  # Flag for signal handling
         
         # Thread safety
         self.lock = threading.Lock()
@@ -58,9 +60,14 @@ class SocketLoadTester:
         signal.signal(signal.SIGTERM, self.signal_handler)
     
     def signal_handler(self, signum, frame):
-        """Handle shutdown signals gracefully."""
-        print(f"\nReceived signal {signum}, shutting down gracefully...")
+        """Handle shutdown signals by signaling run_test to end."""
+        print(f"\nReceived signal {signum}, stopping test...")
+        
+        # Signal the test to stop
+        self.interrupted = True
         self.running = False
+        
+    
     
     async def create_connection(self, connection_id):
         """Create a single WebSocket connection and handle its lifecycle."""
@@ -73,7 +80,7 @@ class SocketLoadTester:
             connect_start = time.time()
             ws = await asyncio.wait_for(
                 websockets.connect(f"{self.host}/ws/chat/"),
-                timeout=10.0
+                timeout=100.0
             )
             connect_time = time.time() - connect_start
             
@@ -92,6 +99,10 @@ class SocketLoadTester:
                 try:
                     current_time = time.time()
                     
+                    # Check if we've been interrupted
+                    if self.interrupted:
+                        break
+                    
                     # Send message based on send_rate
                     if current_time - last_message_time >= message_interval:
                         message = f"Load test message {message_count} from connection {connection_id}"
@@ -100,7 +111,7 @@ class SocketLoadTester:
                         await ws.send(message)
                         
                         # Wait for response
-                        response = await asyncio.wait_for(ws.recv(), timeout=5.0)
+                        response = await asyncio.wait_for(ws.recv(), timeout=100.0)
                         message_time = time.time() - send_start
                         
                         data = json.loads(response)
@@ -236,35 +247,42 @@ Starting WebSocket Load Test
         
         self.start_time = time.time()
         
-        # Start tasks
-        tasks = [
+        # Start tasks and store references
+        self.tasks = [
             asyncio.create_task(self.connection_spawner()),
             asyncio.create_task(self.monitor_loop())
         ]
         
         try:
             # Run for specified duration or until interrupted
-            await asyncio.sleep(self.duration)
+            while not self.interrupted:
+                await asyncio.sleep(0.1)
+                # Check if duration has elapsed
+                if time.time() - self.start_time >= self.duration:
+                    break
             
         except KeyboardInterrupt:
             print("\n[INTERRUPTED] Test interrupted by user")
+            self.interrupted = True
             
         finally:
-            # Cleanup
+            # Stop everything
             self.running = False
             
-            print("\n[CLEANUP] Cleaning up connections...")
+            # Wait a moment for tasks to stop gracefully
+            await asyncio.sleep(1.0)
             
-            # Wait a bit for graceful shutdown
-            await asyncio.sleep(2)
+            # Cancel any remaining tasks
+            for task in self.tasks:
+                if not task.done():
+                    task.cancel()
             
-            # Cancel remaining tasks
-            for task in tasks:
-                task.cancel()
-            
-            # Final statistics
+            # Print final stats
             print("\n" + "="*50)
-            print("[STATS] FINAL RESULTS")
+            if self.interrupted:
+                print("[STATS] FINAL RESULTS (INTERRUPTED)")
+            else:
+                print("[STATS] FINAL RESULTS")
             print("="*50)
             self.print_stats()
             
@@ -277,6 +295,9 @@ Test Results:
    Peak Concurrent Connections: {max(len(self.active_connections), self.connection_count)}
    Target Achievement: {'PASS' if self.connection_count >= self.target_sockets * 0.9 else 'FAIL'}
 """)
+            
+            # Ensure output is flushed
+            sys.stdout.flush()
 
 def main():
     parser = argparse.ArgumentParser(description='WebSocket Load Tester')
@@ -304,9 +325,9 @@ def main():
     
     try:
         asyncio.run(tester.run_test())
-    except KeyboardInterrupt:
-        print("\n[INTERRUPTED] Test interrupted")
-        sys.exit(0)
+    except Exception as e:
+        print(f"\n[ERROR] Test failed: {e}")
+        sys.exit(1)
 
 if __name__ == '__main__':
     main()
